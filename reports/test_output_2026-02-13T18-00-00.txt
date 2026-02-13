@@ -1,0 +1,64 @@
+# Token Guardian Test Results - 2026-02-13
+# Test file: test_shadow_225.py (223 queries)
+
+## Metrics Summary
+
+| Category | Count | % | Definition |
+|----------|-------|---|------------|
+| SAFE_FALLBACK | 35 | 15.7% | VERY_LOW (15) + VAGUE (20) - routes to safe model (gpt-5-mini) |
+| LOW_BAND_SPECIALIST | 66 | 29.6% | Routes to preferred specialist but low confidence (0.45-0.79) |
+| DIRECT | 121 | 54.3% | Routes to preferred model with high confidence (>=0.80) |
+
+Target Met: SAFE_FALLBACK = 15.7% < 30% target
+
+## LOW-BAND Examples (=> preferred specialist)
+
+1. [0.60] "Create a React component for user login" -> grok-4 (coding)
+2. [0.60] "Create a microservice in Go" -> grok-4 (coding)
+3. [0.60] "Write a regex to validate email" -> grok-4 (coding)
+4. [0.60] "Build a GraphQL resolver" -> grok-4 (coding)
+5. [0.45] "Implement authentication middleware" -> grok-4 (coding)
+6. [0.60] "Create a Docker container for this app" -> grok-4 (coding)
+7. [0.60] "Create a CLI tool in Rust" -> grok-4 (coding)
+8. [0.60] "Build a web scraper in Python" -> grok-4 (coding)
+9. [0.60] "Write a cron job to clean logs" -> grok-4 (coding)
+10. [0.60] "Create a blockchain smart contract" -> grok-4 (coding)
+
+## SAFE_FALLBACK Examples (=> gpt-5-mini)
+
+VERY_LOW (confidence <=0.44):
+1. [0.15] "Implement file upload handler" -> coding
+2. [0.35] "Find patterns in user behavior" -> data_analysis
+3. [0.15] "Calculate average order value" -> data_analysis
+4. [0.15] "Find top-selling products" -> data_analysis
+5. [0.15] "Generate lead scoring model" -> data_analysis
+
+VAGUE (safe route):
+1. [0.15] "Calculate conversion rates" -> data_analysis
+2. [0.10] "General question about AI" -> simple_qa
+3. [0.20] "Something about programming" -> coding
+4. [0.30] "Discuss the future" -> simple_qa
+5. [0.10] "Give me information" -> simple_qa
+
+## Creative "Create" Leakage Fix - Verified
+
+| Query | Label | Conf | Status |
+|-------|-------|------|--------|
+| "Create a blog post about productivity" | creative | 0.50 | OK - Correct |
+| "Write an article about climate change" | creative | 1.00 | OK - Correct |
+| "Create a story about a hero" | creative | 0.60 | OK - Correct |
+| "Draft a recipe for chocolate cake" | creative | 0.15 | OK - Correct (LOW) |
+| "Create marketing copy for a product" | creative | 0.50 | OK - Correct |
+| "Write a regex to validate email" | coding | 0.60 | OK - Correct |
+
+## Configuration
+
+- specialist LOW-band threshold: > 0.44
+- simple_qa LOW-band threshold: >= 0.60
+- global threshold: >= 0.80
+- VAGUE: always safe route
+
+## Changes
+
+- File: src/core/pipeline.py
+- Fix: Changed ">= 0.45" to "> 0.44" for floating-point edge case
