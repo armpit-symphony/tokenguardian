@@ -92,13 +92,11 @@ routing_rules:
       - openai/gpt-5-mini
     max_length: 100
     keywords:
-      # Question starters
+      # Question starters (removed why/how/explain - those are reasoning)
       - what
       - when
       - where
       - who
-      - why
-      - how
       - does
       - is
       - are
@@ -112,8 +110,9 @@ routing_rules:
       - define
       - definition
       - meaning
-      - explain
-      # Common utility topics
+      - called
+      - name
+      # Utility patterns
       - time
       - date
       - weather
@@ -128,8 +127,6 @@ routing_rules:
       - price
       - year
       - day
-      - called
-      - name
   
   general:
     preferred: minimax/MiniMax-M2.1

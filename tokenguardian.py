@@ -71,6 +71,8 @@ def cmd_start(args):
 
 def cmd_stop(args):
     """Stop the Token Guardian daemon"""
+    from src.daemon.daemon import TokenGuardianDaemon, DaemonConfig
+    
     config = DaemonConfig()
     pid_file = Path(config.pid_file)
     

@@ -168,10 +168,11 @@ class Classifier:
                 continue
             
             # ============================================
-            # REASONING BOOSTS
+            # REASONING BOOSTS (Step 1 - HIGH LEVERAGE)
             # ============================================
             if cls_name == 'reasoning':
                 # Reasoning intent patterns (+0.20 to +0.30)
+                # Use OR logic for flexibility
                 reasoning_patterns = [
                     ('explain why', 0.30),
                     ('why does', 0.30),
@@ -180,7 +181,7 @@ class Classifier:
                     ('tradeoffs', 0.25),
                     ('walk me through', 0.25),
                     ('step by step', 0.20),
-                    ('compare', 0.25),
+                    ('compare', 0.25),  # Single word match too
                     ('differences between', 0.25),
                     ('what are the', 0.20),
                     ('explain the', 0.20),
@@ -223,14 +224,14 @@ class Classifier:
                     score += 0.10
                     matched.append(f'short({word_count}words)')
                 
-                # Definition patterns bonus (+0.15)
+                # Definition patterns bonus (+0.15) - accumulate ALL matches
                 definition_patterns = ['what is', 'what are', 'what does', 'define', 'definition', 'meaning']
                 for pattern in definition_patterns:
                     if pattern in query_lower:
                         score += 0.15
                         matched.append(f'def_pattern:{pattern}')
                 
-                # Utility patterns bonus (+0.20)
+                # Utility patterns bonus (+0.20) - accumulate ALL matches
                 utility_patterns = ['time', 'date', 'weather', 'temperature', 'timezone', 'day', 'year', 'capital', 'population']
                 for pattern in utility_patterns:
                     if pattern in query_lower:
@@ -264,94 +265,49 @@ class Classifier:
                     patterns.append(keyword)
             
             # ============================================
-            # SPECIALIST LABEL VERB/INTENT PATTERNS (+0.15 per match, cap 2)
+            # SPECIALIST LABEL VERB/INTENT PATTERNS (NEW)
             # ============================================
-            if cls_name == 'coding':
-                coding_verbs = ['write', 'implement', 'fix', 'debug', 'refactor', 'build', 'create']
-                verb_matches = sum(1 for v in coding_verbs if v in query_lower)
-                if verb_matches > 0:
-                    score += 0.15 * min(verb_matches, 2)
-                    matched.append(f'coding_verb:{verb_matches}')
+            # Verb patterns that signal coding intent
+            coding_verbs = ['write', 'implement', 'fix', 'debug', 'refactor', 'build', 'create', 'deploy', 'code', 'compile', 'execute', 'test']
+            coding_verb_matches = sum(1 for v in coding_verbs if v in query_lower)
+            if cls_name == 'coding' and coding_verb_matches > 0:
+                score += 0.25 * min(coding_verb_matches, 2)  # Cap at +0.50
+                matched.append(f'coding_verb:{coding_verb_matches}')
             
-            if cls_name == 'data_analysis':
-                data_verbs = ['analyze', 'summarize', 'compute', 'plot', 'trend', 'correlation', 'statistical', 'calculate', 'find', 'generate', 'forecast', 'predict']
-                verb_matches = sum(1 for v in data_verbs if v in query_lower)
-                if verb_matches > 0:
-                    score += 0.15 * min(verb_matches, 2)
-                    matched.append(f'data_verb:{verb_matches}')
-                
-                # Data analysis nouns - boost when present
-                data_nouns = ['metric', 'revenue', 'churn', 'funnel', 'cohort', 'segmentation', 
-                            'lifetime value', 'conversion', 'kpi', 'report', 'dashboard', 
-                            'forecast', 'trend', 'analysis', 'data', 'dataset', 'sales',
-                            'customer', 'business', 'performance', 'insight']
-                data_noun_matches = sum(1 for n in data_nouns if n in query_lower)
-                if data_noun_matches > 0:
-                    score += 0.15 * min(data_noun_matches, 3)
-                    matched.append(f'data_noun:{data_noun_matches}')
-                
-                # Data floor: if 2+ data nouns present, ensure minimum score = 0.50
-                if data_noun_matches >= 2:
-                    score = max(score, 0.50)
-                    matched.append('data_floor:0.50')
+            # Verb patterns that signal data_analysis intent
+            data_verbs = ['analyze', 'summarize', 'compute', 'plot', 'trend', 'correlation', 'statistical', 'calculate', 'find', 'generate', 'forecast', 'predict']
+            data_verb_matches = sum(1 for v in data_verbs if v in query_lower)
+            if cls_name == 'data_analysis' and data_verb_matches > 0:
+                score += 0.25 * min(data_verb_matches, 2)  # Cap at +0.50
+                matched.append(f'data_verb:{data_verb_matches}')
             
-            if cls_name == 'creative':
-                creative_verbs = ['draft', 'rewrite', 'tone', 'headline', 'story', 'script', 'ad copy', 'design']
-                verb_matches = sum(1 for v in creative_verbs if v in query_lower)
-                if verb_matches > 0:
-                    score += 0.15 * min(verb_matches, 2)
-                    matched.append(f'creative_verb:{verb_matches}')
+            # Verb patterns that signal creative intent
+            creative_verbs = ['draft', 'rewrite', 'tone', 'headline', 'story', 'script', 'ad copy', 'design', 'compose', 'write']
+            creative_verb_matches = sum(1 for v in creative_verbs if v in query_lower)
+            if cls_name == 'creative' and creative_verb_matches > 0:
+                score += 0.25 * min(creative_verb_matches, 2)  # Cap at +0.50
+                matched.append(f'creative_verb:{creative_verb_matches}')
             
             # ============================================
-            # MULTI-HIT SPECIALIST DENSITY BONUS
+            # MULTI-HIT SPECIALIST DENSITY BONUS (NEW)
             # ============================================
+            # Boost for specialist labels with multiple matches
             if cls_name in ('coding', 'data_analysis', 'creative'):
+                # Count base keyword matches (not verb patterns or boosts)
                 base_matches = len([m for m in matched if not any(x in m for x in [':', '?', '(', '['])])
                 if base_matches >= 3:
-                    score += 0.30
+                    score += 0.30  # +0.30 for 3+ matches
                     matched.append(f'multi_hit:{base_matches}')
                 elif base_matches == 2:
-                    score += 0.20
+                    score += 0.20  # +0.20 for 2 matches
                     matched.append(f'multi_hit:{base_matches}')
             
-            # Coding patterns bonus - only apply full boost if coding noun present
+            # Coding patterns bonus (legacy, kept for compatibility)
             if cls_name == 'coding':
-                # Strong coding nouns (require one of these for full coding boost)
-                coding_nouns = ['api', 'function', 'class', 'method', 'component', 'service', 'regex', 'query', 'endpoint', 'schema', 'docker', 'graphql', 'cron', 'blockchain', 'middleware', 'resolver', 
-                               'docker', 'resolver', 'script', 'algorithm', 'database', 'endpoint',
-                               'middleware', 'container', 'microservice', 'worker', 'pipeline',
-                               'handler', 'module', 'interface', 'schema', 'query', 'table']
-                
-                # Generic coding verbs (weaker without noun)
-                generic_verbs = ['write', 'create', 'build']
-                
-                has_coding_noun = any(noun in query_lower for noun in coding_nouns)
-                generic_verb_hits = sum(1 for v in generic_verbs if v in query_lower)
-                
-                if has_coding_noun:
-                    # Full coding boost with noun present
-                    code_indicators = ['write', 'create', 'build', 'function', 'code', 'class', 'method']
-                    code_matches = sum(1 for w in code_indicators if w in query_lower)
+                code_indicators = ['write', 'create', 'build', 'function', 'code', 'class', 'method']
+                code_matches = sum(1 for w in code_indicators if w in query_lower)
+                if code_matches >= 1:
                     score += 0.15 * min(code_matches, 3)
-                elif generic_verb_hits > 0:
-                    # Weaker boost (+0.05) for generic verbs without coding noun
-                    # This prevents "create a blog post" from scoring as coding
-                    score += 0.05
-                    matched.append('weak_verb_only')
-            
-            # Creative patterns - explicit detection for blog posts, articles
-            if cls_name == 'creative':
-                creative_nouns = ['blog', 'post', 'article', 'story', 'poem', 'script', 
-                                  'headline', 'tagline', 'slogan', 'caption', 'copy', 'ad',
-                                  'content', 'marketing', 'social media', 'email']
-                has_creative_noun = any(noun in query_lower for noun in creative_nouns)
-                if has_creative_noun:
-                    # Give creative a boost when these nouns are present
-                    creative_indicators = ['draft', 'write', 'create', 'design', 'rewrite']
-                    creative_matches = sum(1 for w in creative_indicators if w in query_lower)
-                    if creative_matches > 0:
-                        score += 0.15 * min(creative_matches, 2)
-                        matched.append(f'creative_noun:{creative_matches}')
             
             # Multiple match bonus
             clean_matches = [m for m in matched if not any(x in m for x in [':', '?', '(', '['])]
@@ -365,20 +321,10 @@ class Classifier:
             matched_keywords_all[cls_name] = matched
         
         # Strong reasoning pattern detection (for override)
-        # These patterns indicate reasoning/complex thinking, NOT simple_qa
         strong_reasoning_patterns = [
-            # Complex reasoning patterns
-            'explain why', 'why does', 'why is', 'why are', 'how does', 'how can', 'how should',
-            'pros and cons', 'tradeoffs', 'advantages and disadvantages',
-            'walk me through', 'step by step', 'compare and contrast', 
-            'differences between', 'similarities between',
-            # Causal reasoning
-            'because', 'therefore', 'reason for', 'cause of', 'result of', 'impact of', 
-            'effect of', 'lead to', 'due to', 'what causes', 'what leads to',
-            # Evaluation patterns
-            'evaluate', 'assess', 'analyze pros', 'weigh the', 'consider both',
-            # Comparative/analytical
-            'think about', 'reason about', 'logic behind', 'argument for'
+            'explain why', 'why does', 'how does', 'pros and cons', 'tradeoffs',
+            'walk me through', 'step by step', 'compare', 'differences between',
+            'because', 'therefore', 'reason for', 'cause of'
         ]
         has_strong_reasoning = any(p in query_lower for p in strong_reasoning_patterns)
         
@@ -390,145 +336,6 @@ class Classifier:
         if has_strong_reasoning and 'reasoning' in scores:
             best_label = 'reasoning'
             best_score = max(scores['reasoning'], 0.80)  # Floor for strong reasoning
-        
-        # ============================================
-        # SIMPLE_QA HARD GATE: Prevent creative from leaking into simple_qa
-        # ============================================
-        # Only apply this gate if best_label is simple_qa
-        # If creative triggers present, let creative win instead
-        if best_label == 'simple_qa':
-            # Creative triggers that disqualify simple_qa
-            creative_triggers = [
-                'story', 'poem', 'blog', 'post', 'article', 'marketing',
-                'caption', 'copy', 'ad ', 'script', 'narrative', 'character',
-                'plot', 'headline', 'tagline', 'slogan', 'design', 'creative',
-                'write a', 'write an', 'create a', 'create an', 'draft a',
-                'recipe', 'storytelling', 'social media'
-            ]
-            has_creative_trigger = any(t in query_lower for t in creative_triggers)
-            
-            # Question form check
-            question_starts = ['what ', 'when ', 'where ', 'who ', 'does ', 'is ', 'are ', 'can ', 'should ', 'could ']
-            starts_with_question = any(query_lower.strip().startswith(q.strip()) for q in question_starts)
-            
-            # Definition pattern check
-            definition_patterns = ['what is ', 'what are ', 'what does ', 'define ', 'definition of ', 'meaning of ', 'called ']
-            has_definition = any(p in query_lower for p in definition_patterns)
-            
-            # Apply hard gate for simple_qa
-            # If creative trigger present AND (not question OR not definition), fail simple_qa
-            if has_creative_trigger:
-                if not (starts_with_question or has_definition):
-                    # creative trigger without question form → fail simple_qa
-                    if 'creative' in scores and scores['creative'] >= 0.30:
-                        best_label = 'creative'
-                        best_score = max(scores['creative'], 0.45)
-                    else:
-                        best_label = 'general'
-                        best_score = min(best_score, 0.25)
-                        is_vague = True
-            else:
-                # Not creative trigger - check other simple_qa requirements
-                if len(query) > 100 or (not starts_with_question and not has_definition):
-                    best_label = 'general'
-                    best_score = min(best_score, 0.30)
-                    is_vague = True
-        
-        # ============================================
-        # CREATIVE OVERRIDE: Creative nouns trump coding verbs
-        # ============================================
-        # If creative nouns present, force creative label (similar to reasoning override)
-        creative_nouns = ['story', 'poem', 'blog', 'post', 'article', 'marketing',
-                        'caption', 'copy', 'script', 'narrative', 'character', 'plot',
-                        'headline', 'tagline', 'slogan', 'design', 'creative content',
-                        'recipe', 'storytelling', 'social media']
-        has_creative_noun = any(n in query_lower for n in creative_nouns)
-        
-        # Generic creative verbs (weaker signal)
-        creative_verbs = ['write', 'create', 'draft', 'design', 'rewrite']
-        has_creative_verb = any(v in query_lower for v in creative_verbs)
-        
-        # Creative override: if creative noun present AND has creative verb, force creative
-        if has_creative_noun and has_creative_verb and 'creative' in scores:
-            if best_label == 'coding' and scores['creative'] < scores['coding']:
-                # Creative noun + verb should win over coding
-                best_label = 'creative'
-                best_score = max(scores['creative'], 0.60)
-        
-        # ============================================
-        # SURGICAL FIX: Prevent weak labels from winning on low evidence
-        # ============================================
-        # If best_label is "general" or "simple_qa" with weak evidence, 
-        # use intent verbs to force a specialist label
-        # Note: matched_keywords_all may include partial matches and boosts,
-        # so we check for actual keyword presence (not partial, not boosts)
-        if best_label in ('general', 'simple_qa') and best_score < 0.50:
-            coding_verbs = ['write', 'implement', 'fix', 'debug', 'refactor', 'build', 'create']
-            data_verbs = ['analyze', 'summarize', 'compute', 'plot', 'trend', 'correlation', 'statistical', 'calculate', 'find', 'generate', 'forecast', 'predict']
-            creative_verbs = ['draft', 'rewrite', 'tone', 'headline', 'story', 'script', 'ad copy', 'design']
-            
-            coding_hits = sum(1 for v in coding_verbs if v in query_lower)
-            data_hits = sum(1 for v in data_verbs if v in query_lower)
-            creative_hits = sum(1 for v in creative_verbs if v in query_lower)
-            
-            # Count actual keyword matches (not partial, not boosts)
-            # matched keywords are those without ':', '(', etc.
-            simple_qa_kw = [m for m in matched_keywords_all.get('simple_qa', []) 
-                           if not any(x in m for x in [':', '(', '?', '['])]
-            
-            # Strong specialist intent (2+ verbs) wins
-            if coding_hits >= 2 and 'coding' in scores:
-                best_label = 'coding'
-                best_score = max(scores['coding'], 0.55)
-            elif data_hits >= 2 and 'data_analysis' in scores:
-                best_label = 'data_analysis'
-                best_score = max(scores['data_analysis'], 0.55)
-            elif creative_hits >= 2 and 'creative' in scores:
-                best_label = 'creative'
-                best_score = max(scores['creative'], 0.55)
-            # Single verb hint can win if current label has NO real keywords
-            elif best_label == 'simple_qa' and len(simple_qa_kw) == 0:
-                if coding_hits >= 1 and 'coding' in scores:
-                    best_label = 'coding'
-                    best_score = max(scores['coding'], 0.45)
-                elif data_hits >= 1 and 'data_analysis' in scores:
-                    best_label = 'data_analysis'
-                    best_score = max(scores['data_analysis'], 0.45)
-                elif creative_hits >= 1 and 'creative' in scores:
-                    best_label = 'creative'
-                    best_score = max(scores['creative'], 0.45)
-        
-        # ============================================
-        # TIE-BREAKER: Creative wins over coding when creative noun present
-        # ============================================
-        if best_label == 'coding' and 'creative' in scores:
-            # Check if creative has creative nouns (blog, post, article, story, etc.)
-            creative_nouns = ['blog', 'post', 'article', 'story', 'poem', 'script', 
-                             'headline', 'tagline', 'slogan', 'caption', 'copy', 'ad',
-                             'content', 'marketing', 'social media', 'recipe']
-            has_creative_noun = any(noun in query_lower for noun in creative_nouns)
-            # Generic coding verbs that shouldn't override creative nouns
-            generic_verbs = ['write', 'create', 'build', 'design']
-            has_generic_verb = any(v in query_lower for v in generic_verbs)
-            
-            if has_creative_noun and has_generic_verb:
-                if scores['creative'] >= scores['coding'] - 0.15:  # Close enough
-                    best_label = 'creative'
-                    best_score = max(scores['creative'], 0.50)  # Floor for creative with noun
-        
-        # ============================================
-        # ZERO-MATCH FLOOR: Specialist intent with 2+ verbs gets minimum score
-        # ============================================
-        if best_label in ('coding', 'data_analysis', 'creative'):
-            coding_verbs = ['write', 'implement', 'fix', 'debug', 'refactor', 'build', 'create']
-            data_verbs = ['analyze', 'summarize', 'compute', 'plot', 'trend', 'correlation', 'statistical', 'calculate', 'find', 'generate', 'forecast', 'predict']
-            creative_verbs = ['draft', 'rewrite', 'tone', 'headline', 'story', 'script', 'ad copy', 'design']
-            
-            verb_list = coding_verbs if best_label == 'coding' else (data_verbs if best_label == 'data_analysis' else creative_verbs)
-            verb_hits = sum(1 for v in verb_list if v in query_lower)
-            
-            if verb_hits >= 2:
-                best_score = max(best_score, 0.55)  # Floor for strong intent
         
         # Build reasoning
         matched_list = matched_keywords_all.get(best_label, [])
@@ -598,6 +405,10 @@ def classify_with_confidence(query: str,
             # Simple QA in LOW band - route to intended cheap model
             selected_model = classifier.get_preferred_model(result.label)
             fallback_reason = f"LOW_CONF_SIMPLE_QA_OK: conf={result.confidence:.2f}"
+        elif result.label in ('coding', 'data_analysis', 'creative') and result.confidence >= 0.45:
+            # Specialist models in LOW band - route to intended specialist
+            selected_model = classifier.get_preferred_model(result.label)
+            fallback_reason = f"LOW_CONF_{result.label.upper()}_OK: conf={result.confidence:.2f}"
         elif result.is_vague:
             # Vague query - safe route
             selected_model = classifier.get_safe_fallback_model()

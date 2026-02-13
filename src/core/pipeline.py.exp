@@ -41,7 +41,7 @@ class RoutingDecision:
     fallback_reason: str
     optimization: Optional[Dict[str, Any]] = None
     estimated_cost: float = 0.0
-    status: str = "pending"
+    status: str = "pending"  # pending, dispatched, completed
 
 
 class UnifiedPipeline:
@@ -116,44 +116,34 @@ class UnifiedPipeline:
         # Step 1: Classify with confidence
         classification = self.classifier.classify(query)
         
-        # Step 2: Determine model selection with THREE-TIER FALLBACK
-        # Tiers: 
-        #   - global: 0.80
-        #   - specialist LOW band: 0.45-0.79
-        #   - simple_qa budget: 0.45-0.59 (MiniMax)
-        #   - simple_qa LOW: 0.60-0.79 (MiniMax)
-        #   - safe quality fallback: <0.45 or VAGUE (gpt-5-mini)
+        # Step 2: Determine model selection with TWO-TIER FALLBACK (Step 3)
+        # Thresholds: global=0.80, simple_qa LOW band=0.60, specialist LOW band=0.449 (tolerance for float)
         preferred_model = self.classifier.get_preferred_model(classification.label)
         
         if classification.confidence < self.confidence_threshold:
             # Below global threshold - check tier
-            if classification.is_vague:
-                # Vague query - safe quality fallback
-                selected_model = self.safe_fallback_model
-                fallback_triggered = True
-                fallback_reason = f"VAGUE_QUERY_SAFE_ROUTE: conf={classification.confidence:.2f}"
-            elif classification.label == 'simple_qa' and classification.confidence >= 0.60:
-                # Simple QA in LOW band (0.60-0.79) → budget MiniMax
-                selected_model = preferred_model  # MiniMax
+            if classification.label == 'simple_qa' and classification.confidence >= 0.599:
+                # Simple QA in LOW band (0.60-0.79) → route to intended cheap model
+                selected_model = preferred_model
                 fallback_triggered = True
                 fallback_reason = f"LOW_CONF_SIMPLE_QA_OK: conf={classification.confidence:.2f} → {selected_model}"
-            elif classification.label == 'simple_qa' and 0.45 < classification.confidence < 0.60:
-                # Simple QA in budget band (0.45-0.59) → budget MiniMax
-                selected_model = preferred_model  # MiniMax
-                fallback_triggered = True
-                fallback_reason = f"BUDGET_SIMPLE_QA: conf={classification.confidence:.2f} → {selected_model}"
-            elif classification.label in ('coding', 'data_analysis', 'creative', 'reasoning') and classification.confidence > 0.44:
-                # Specialist in LOW band (0.45-0.79) → preferred specialist
+            elif classification.label in ('coding', 'data_analysis', 'creative') and classification.confidence >= 0.449:
+                # Specialist models in LOW band (0.45-0.79) → route to intended specialist
                 selected_model = preferred_model
                 fallback_triggered = True
                 fallback_reason = f"LOW_CONF_{classification.label.upper()}_OK: conf={classification.confidence:.2f} → {selected_model}"
-            elif classification.confidence <= 0.45:
-                # Very low confidence or simple_qa < 0.45 → safe quality fallback
+            elif classification.is_vague:
+                # Vague query - safe route but separate reason
                 selected_model = self.safe_fallback_model
                 fallback_triggered = True
-                fallback_reason = f"SAFE_QUALITY_FALLBACK: conf={classification.confidence:.2f} < 0.45"
+                fallback_reason = f"VAGUE_QUERY_SAFE_ROUTE: conf={classification.confidence:.2f}"
+            elif classification.confidence < 0.599:
+                # Very low confidence → use safe fallback
+                selected_model = self.safe_fallback_model
+                fallback_triggered = True
+                fallback_reason = f"VERY_LOW_CONF_FALLBACK: conf={classification.confidence:.2f} < 0.60"
             else:
-                # Other cases → safe fallback
+                # Other categories below threshold
                 selected_model = self.safe_fallback_model
                 fallback_triggered = True
                 fallback_reason = f"LOW_CONF: conf={classification.confidence:.2f} < {self.confidence_threshold}"
@@ -177,11 +167,27 @@ class UnifiedPipeline:
         else:
             # Actually optimize
             opt_result = self.optimizer.optimize(query, response)
+            optimization = {
+                'action': opt_result.action_taken,
+                'tokens_saved': opt_result.tokens_saved,
+                'savings_percent': opt_result.savings_percent,
+                'refined_prompt': opt_result.refined
+            }
+            
+            # Record if cached
+            if opt_result.cache_hit:
+                self.monitor.record_cache_hit()
         
-        # Create decision record
+        # Step 4: Estimate cost
+        estimated_cost = self.monitor.estimate_cost(
+            len(query) // 4 + 100, 
+            selected_model
+        )
+        
+        # Create decision
         decision = RoutingDecision(
             timestamp=timestamp,
-            query=query,
+            query=query[:100] + "..." if len(query) > 100 else query,
             classification=classification.label,
             confidence=classification.confidence,
             threshold=self.confidence_threshold,
@@ -189,34 +195,39 @@ class UnifiedPipeline:
             fallback_triggered=fallback_triggered,
             fallback_reason=fallback_reason,
             optimization=optimization,
-            estimated_cost=0.001,
-            status="shadow" if self.shadow_mode else "dispatched"
+            estimated_cost=estimated_cost
         )
         
         # Log decision
-        self.decision_log.append(decision)
-        
-        # Log routing decision
-        if fallback_triggered:
-            logger.warning(f"ROUTING: label={classification.label} confidence={classification.confidence:.2f} threshold={self.confidence_threshold} model={selected_model} fallback=YES:{fallback_reason}")
-        else:
-            logger.info(f"ROUTING: label={classification.label} confidence={classification.confidence:.2f} threshold={self.confidence_threshold} model={selected_model} fallback=NO")
+        self._log_decision(decision)
         
         return decision
     
-    def dispatch(self, query: str) -> Dict[str, Any]:
+    def _log_decision(self, decision: RoutingDecision):
+        """Log routing decision"""
+        self.decision_log.append(decision)
+        
+        # Format log line with all required fields
+        log_line = (
+            f"ROUTING: label={decision.classification} "
+            f"confidence={decision.confidence:.2f} "
+            f"threshold={decision.threshold:.2f} "
+            f"model={decision.selected_model} "
+            f"fallback={'YES:' + decision.fallback_reason if decision.fallback_triggered else 'NO'}"
+        )
+        
+        if decision.fallback_triggered:
+            logger.warning(log_line)
+        else:
+            logger.info(log_line)
+    
+    def dispatch(self, decision: RoutingDecision) -> Dict[str, Any]:
         """
         Dispatch query to selected model
         
         In shadow mode, just log what would have been done
         In live mode, actually dispatch
         """
-        from .classifier import ClassificationResult
-        
-        # Process through pipeline
-        decision = self.process(query)
-        
-        # Dispatch to model
         if self.shadow_mode:
             return {
                 'status': 'shadow',
@@ -291,7 +302,7 @@ if __name__ == '__main__':
         "Write a creative story about space",
         "Explain why the sky is blue",
         "What's 2+2?",
-        "General question",
+        "General question",  # Should trigger fallback (low confidence)
     ]
     
     print(f"\nPipeline Status: {pipeline.get_status()['mode']}")
