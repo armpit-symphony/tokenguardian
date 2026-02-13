@@ -1,0 +1,50 @@
+# Token Guardian Configuration
+# System config at /etc/tokenguardian/guardian.yaml
+# User override at ~/.tokenguardian/guardian.yaml
+
+# Core Settings
+daemon:
+  interval: 30                    # Seconds between monitoring cycles
+  pid_file: /var/run/tokenguardian.pid
+  log_file: /var/log/tokenguardian/daemon.log
+
+# Optimization Settings
+optimizer:
+  enabled: true
+  dry_run: false                 # Shadow mode - no actual optimizations
+  refinement:
+    enabled: true
+    fluff_words:
+      - "please"
+      - "thank you"
+      - "could you"
+      - "i would like to"
+      - "can you"
+      - "kindly"
+      - "just"
+      - "really"
+      - "very"
+      - "absolutely"
+      - "essentially"
+      - "basically"
+      - "quite"
+  
+  caching:
+    enabled: true
+    ttl: 86400                   # 24 hours in seconds
+    dir: ~/.tokenguardian/cache
+  
+  compaction:
+    enabled: false               # Future: merge similar requests
+    batch_window: 5              # seconds
+
+# Audit & Telemetry
+audit:
+  enabled: true
+  dir: ~/.tokenguardian/audit
+  retention_days: 30
+
+# Safety
+safety:
+  max_tokens_per_cycle: 10000    # Alert threshold
+  emergency_stop: false

@@ -1,0 +1,137 @@
+# Token Guardian - Routing Rules
+# System config at /etc/tokenguardian/routing.yaml
+# User override at ~/.tokenguardian/routing.yaml
+
+# Safety: Confidence Threshold
+# If classification confidence < threshold, use safe_fallback instead of preferred
+confidence_threshold: 0.80
+
+# Classification → Model Preferences
+routing_rules:
+  coding:
+    preferred: xai/grok-4
+    alternatives:
+      - openai/gpt-5-mini
+      - openai/gpt-5.2
+    keywords:
+      - code
+      - function
+      - program
+      - debug
+      - api
+      - script
+      - algorithm
+      - sql
+      - javascript
+      - python
+      - java
+      - class
+      - compile
+      - execute
+      - test
+      - refactor
+      - write
+      - create
+      - build
+      - method
+  
+  data_analysis:
+    preferred: xai/grok-4
+    alternatives:
+      - openai/gpt-5-mini
+    keywords:
+      - analyze
+      - data
+      - statistics
+      - chart
+      - graph
+      - table
+      - query
+      - summary
+      - trend
+      - pattern
+      - insight
+      - report
+  
+  creative:
+    preferred: openai/gpt-5-mini
+    alternatives:
+      - xai/grok-4
+    keywords:
+      - write
+      - story
+      - poem
+      - creative
+      - article
+      - blog
+      - marketing
+      - design
+      - narrative
+      - character
+      - plot
+  
+  reasoning:
+    preferred: xai/grok-4
+    alternatives:
+      - openai/gpt-5-mini
+    keywords:
+      - explain
+      - reason
+      - logic
+      - why
+      - how
+      - think
+      - decide
+      - compare
+      - evaluate
+      - consider
+  
+  simple_qa:
+    preferred: minimax/MiniMax-M2.1
+    alternatives:
+      - openai/gpt-5-mini
+    max_length: 100
+    keywords:
+      # Question starters
+      - what
+      - when
+      - where
+      - who
+      - why
+      - how
+      - does
+      - is
+      - are
+      - can
+      - should
+      - could
+      # Definition patterns
+      - what is
+      - what are
+      - what does
+      - define
+      - definition
+      - meaning
+      - explain
+      # Common utility topics
+      - time
+      - date
+      - weather
+      - temperature
+      - capital
+      - population
+      - inventor
+      - creator
+      - author
+      - location
+      - cost
+      - price
+      - year
+      - day
+      - called
+      - name
+  
+  general:
+    preferred: minimax/MiniMax-M2.1
+    alternatives:
+      - openai/gpt-5-mini
