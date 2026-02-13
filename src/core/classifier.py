@@ -279,6 +279,21 @@ class Classifier:
                 if verb_matches > 0:
                     score += 0.15 * min(verb_matches, 2)
                     matched.append(f'data_verb:{verb_matches}')
+                
+                # Data analysis nouns - boost when present
+                data_nouns = ['metric', 'revenue', 'churn', 'funnel', 'cohort', 'segmentation', 
+                            'lifetime value', 'conversion', 'kpi', 'report', 'dashboard', 
+                            'forecast', 'trend', 'analysis', 'data', 'dataset', 'sales',
+                            'customer', 'business', 'performance', 'insight']
+                data_noun_matches = sum(1 for n in data_nouns if n in query_lower)
+                if data_noun_matches > 0:
+                    score += 0.15 * min(data_noun_matches, 3)
+                    matched.append(f'data_noun:{data_noun_matches}')
+                
+                # Data floor: if 2+ data nouns present, ensure minimum score = 0.50
+                if data_noun_matches >= 2:
+                    score = max(score, 0.50)
+                    matched.append('data_floor:0.50')
             
             if cls_name == 'creative':
                 creative_verbs = ['draft', 'rewrite', 'tone', 'headline', 'story', 'script', 'ad copy', 'design']
