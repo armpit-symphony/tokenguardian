@@ -32,6 +32,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 def get_config_dir() -> str:
     """Get effective configuration directory"""
+    # Check environment variable first (for isolated instances)
+    if 'TG_CONFIG_DIR' in os.environ:
+        return os.environ['TG_CONFIG_DIR']
+    
     user_config = Path('~/.tokenguardian').expanduser()
     system_config = Path('/etc/tokenguardian')
     
@@ -367,6 +371,12 @@ def main():
         description='Token Guardian - AI Cost Optimization & Routing',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Environment:
+  TG_CONFIG_DIR         Override config directory (for isolated instances)
+  TG_CACHE_DIR          Override cache directory
+  TG_AUDIT_DIR          Override audit directory
+  TG_LOG_DIR            Override log directory
+
 Examples:
   tokenguardian status           # Show daemon status
   tokenguardian start --live     # Start in live mode
@@ -375,6 +385,10 @@ Examples:
   tokenguardian help             # Show this help
         """
     )
+    
+    # Global options for isolated instances
+    parser.add_argument('--config-dir', '-c', dest='config_dir',
+                       help='Config directory (default: ~/.tokenguardian)')
     
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
@@ -428,6 +442,10 @@ Examples:
     subparsers.add_parser('help', help='Show this help')
     
     args = parser.parse_args()
+    
+    # Handle isolated config directory
+    if hasattr(args, 'config_dir') and args.config_dir:
+        os.environ['TG_CONFIG_DIR'] = args.config_dir
     
     if args.command == 'help':
         parser.print_help()
