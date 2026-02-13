@@ -335,6 +335,165 @@ def cmd_logs(args):
         print(f"Log file not found: {log_file}")
 
 
+def cmd_daemon(args):
+    """Control Token Guardian daemon"""
+    import subprocess
+    import sys
+    
+    script_dir = Path(__file__).parent
+    daemon_script = script_dir / 'src' / 'core' / 'daemon.py'
+    
+    if not daemon_script.exists():
+        print(f"Daemon not found: {daemon_script}")
+        return
+    
+    instance = getattr(args, 'instance', 'default')
+    poll_interval = getattr(args, 'poll', 30)
+    
+    if args.action == 'start':
+        # Check if already running
+        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        if lock_file.exists():
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)  # Check if process exists
+                print(f"Daemon already running (PID: {pid})")
+                return
+            except (ValueError, ProcessLookupError):
+                lock_file.unlink()
+        
+        # Start daemon
+        env = os.environ.copy()
+        env['TG_CONFIG_DIR'] = str(Path.home() / '.tokenguardian' / instance)
+        
+        cmd = [sys.executable, str(daemon_script), 'start']
+        if instance != 'default':
+            cmd.extend(['--instance', instance])
+        if poll_interval != 30:
+            cmd.extend(['--poll', str(poll_interval)])
+        
+        subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        print(f"Starting Token Guardian daemon (instance: {instance})")
+        time.sleep(2)
+        
+        # Verify
+        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        if lock_file.exists():
+            print("✓ Daemon started successfully")
+        else:
+            print("✗ Failed to start daemon")
+    
+    elif args.action == 'stop':
+        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        if lock_file.exists():
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, signal.SIGTERM)
+                print(f"Stopping daemon (PID: {pid})...")
+                time.sleep(2)
+                print("✓ Daemon stopped")
+            except (ValueError, ProcessLookupError, PermissionError):
+                lock_file.unlink()
+                print("Daemon not running")
+        else:
+            print("Daemon not running")
+    
+    elif args.action == 'status':
+        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        if lock_file.exists():
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)
+                print(f"Daemon running (instance: {instance}, PID: {pid})")
+                
+                # Load and show stats
+                stats_file = Path.home() / '.tokenguardian' / instance / 'data' / 'stats_rollup.json'
+                if stats_file.exists():
+                    with open(stats_file, 'r') as f:
+                        stats = json.load(f)
+                    print(f"\n  Queries: {stats.get('total_queries', 0)}")
+                    print(f"  Total Cost: ${stats.get('total_cost', 0):.6f}")
+                    print(f"  Cost Avoided: ${stats.get('total_cost_avoided', 0):.6f}")
+            except (ValueError, ProcessLookupError, PermissionError):
+                print("Daemon not running")
+        else:
+            print("Daemon not running (instance: {instance})")
+
+
+def cmd_stats(args):
+    """Show usage statistics"""
+    import json
+    from datetime import datetime
+    
+    instance = getattr(args, 'instance', 'default')
+    hours = getattr(args, 'hours', 24)
+    
+    stats_file = Path.home() / '.tokenguardian' / instance / 'data' / 'stats_rollup.json'
+    
+    if not stats_file.exists():
+        print(f"No stats found for instance: {instance}")
+        print(f"Run 'tokenguardian daemon start --instance {instance}' first")
+        return
+    
+    with open(stats_file, 'r') as f:
+        stats = json.load(f)
+    
+    period_start = stats.get('period_start', 'unknown')
+    period_end = stats.get('period_end', 'unknown')
+    
+    print("\n╔════════════════════════════════════════════════════╗")
+    print(f"║           USAGE STATISTICS ({hours}h)              ║")
+    print("╚════════════════════════════════════════════════════╝")
+    print()
+    print(f"Period: {period_start[:19]} → {period_end[:19]}")
+    print(f"Queries: {stats.get('total_queries', 0)}")
+    print(f"Tokens: {stats.get('total_tokens', 0)}")
+    print(f"Total Cost: ${stats.get('total_cost', 0):.6f}")
+    print(f"Cost Avoided: ${stats.get('total_cost_avoided', 0):.6f}")
+    print(f"Cache Hits: {stats.get('cache_hits', 0)}")
+    
+    print("\n--- By Model ---")
+    by_model = stats.get('by_model', {})
+    if by_model:
+        for model, count in sorted(by_model.items(), key=lambda x: -x[1]):
+            print(f"  {model}: {count}")
+    else:
+        print("  (no data)")
+    
+    print("\n--- By Label ---")
+    by_label = stats.get('by_label', {})
+    if by_label:
+        for label, count in sorted(by_label.items(), key=lambda x: -x[1]):
+            print(f"  {label}: {count}")
+    else:
+        print("  (no data)")
+    
+    print("\n--- By Tier ---")
+    by_tier = stats.get('by_tier', {})
+    if by_tier:
+        for tier, count in sorted(by_tier.items(), key=lambda x: -x[1]):
+            print(f"  {tier}: {count}")
+    else:
+        print("  (no data)")
+    
+    # Calculate savings rate
+    total_cost = stats.get('total_cost', 0)
+    avoided = stats.get('total_cost_avoided', 0)
+    if total_cost > 0:
+        rate = (avoided / total_cost) * 100
+        print(f"\n--- Savings Summary ---")
+        print(f"Cost Avoided ({hours}h): ${avoided:.6f}")
+        print(f"Savings Rate: {rate:.1f}%")
+
+
 def cmd_install(args):
     """Install Token Guardian CLI"""
     import shutil
@@ -431,7 +590,15 @@ Examples:
     opt_parser.add_argument('--no-cache', action='store_true', help='Skip cache')
     
     # stats
-    subparsers.add_parser('stats', help='Show usage statistics')
+    stats_parser = subparsers.add_parser('stats', help='Show usage statistics')
+    stats_parser.add_argument('--instance', '-i', default='default', help='Instance name')
+    stats_parser.add_argument('--hours', type=int, default=24, help='Hours of data to show')
+    
+    # daemon
+    daemon_parser = subparsers.add_parser('daemon', help='Control Token Guardian daemon')
+    daemon_parser.add_argument('action', choices=['start', 'stop', 'status'], help='Daemon action')
+    daemon_parser.add_argument('--instance', '-i', default='default', help='Instance name')
+    daemon_parser.add_argument('--poll', '-p', type=int, default=30, help='Poll interval in seconds')
     
     # logs
     logs_parser = subparsers.add_parser('logs', help='Show daemon logs')
@@ -465,6 +632,7 @@ Examples:
         'classify': cmd_classify,
         'optimize': cmd_optimize,
         'stats': cmd_stats,
+        'daemon': cmd_daemon,
         'logs': cmd_logs,
         'install': cmd_install,
     }
