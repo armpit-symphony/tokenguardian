@@ -22,7 +22,9 @@ Usage:
 import argparse
 import json
 import os
+import signal
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -341,9 +343,9 @@ def cmd_daemon(args):
     import sys
     
     script_dir = Path(__file__).parent
-    daemon_script = script_dir / 'src' / 'core' / 'daemon.py'
+    daemon_script = str(script_dir / 'src' / 'core' / 'daemon.py')
     
-    if not daemon_script.exists():
+    if not Path(daemon_script).exists():
         print(f"Daemon not found: {daemon_script}")
         return
     
@@ -363,24 +365,21 @@ def cmd_daemon(args):
             except (ValueError, ProcessLookupError):
                 lock_file.unlink()
         
-        # Start daemon
+        # Start daemon - pass args correctly
         env = os.environ.copy()
         env['TG_CONFIG_DIR'] = str(Path.home() / '.tokenguardian' / instance)
         
-        cmd = [sys.executable, str(daemon_script), 'start']
-        if instance != 'default':
-            cmd.extend(['--instance', instance])
-        if poll_interval != 30:
-            cmd.extend(['--poll', str(poll_interval)])
+        cmd = [sys.executable, daemon_script, 'start', '--instance', instance, '--poll', str(poll_interval)]
         
         subprocess.Popen(
             cmd,
             env=env,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
         )
         print(f"Starting Token Guardian daemon (instance: {instance})")
-        time.sleep(2)
+        time.sleep(3)
         
         # Verify
         lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'

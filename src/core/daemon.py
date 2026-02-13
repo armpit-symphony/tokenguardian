@@ -173,7 +173,7 @@ class OpenClawTelemetry:
         self._discover_session_files()
     
     def _discover_session_files(self):
-        """Find active session files"""
+        """Find active session files and initialize positions from file sizes"""
         session_dir = Path(self.session_path)
         if not session_dir.exists():
             logger.warning(f"Session directory not found: {session_dir}")
@@ -181,8 +181,9 @@ class OpenClawTelemetry:
         
         for f in session_dir.glob('*.jsonl'):
             if not f.name.endswith('.deleted'):
-                self._session_files[str(f)] = 0
-                logger.info(f"Found session file: {f.name}")
+                # Initialize from actual file size (skip existing content)
+                self._session_files[str(f)] = f.stat().st_size
+                logger.info(f"Found session file: {f.name} (position: {f.stat().st_size})")
     
     def read_new_records(self) -> List[TelemetryRecord]:
         """Read new telemetry records from session files"""
@@ -190,20 +191,27 @@ class OpenClawTelemetry:
         
         for session_file, last_pos in self._session_files.items():
             try:
+                file_size = Path(session_file).stat().st_size
+                if last_pos >= file_size:
+                    # No new content
+                    continue
+                
                 with open(session_file, 'r') as f:
                     f.seek(last_pos)
                     new_content = f.read()
                     new_pos = f.tell()
                     
-                    if new_content:
-                        for line in new_content.strip().split('\n'):
-                            if line:
-                                record = self._parse_line(line, session_file)
-                                if record:
-                                    records.append(record)
-                        
-                        self._session_files[session_file] = new_pos
-                        
+                    if not new_content.strip():
+                        continue
+                    
+                    for line in new_content.strip().split('\n'):
+                        if line:
+                            record = self._parse_line(line, session_file)
+                            if record:
+                                records.append(record)
+                    
+                    self._session_files[session_file] = new_pos
+                    
             except Exception as e:
                 logger.error(f"Error reading {session_file}: {e}")
         
@@ -219,18 +227,28 @@ class OpenClawTelemetry:
                 return None
             
             msg = data.get('message', {})
-            content = msg.get('content', [])
-            
-            # Check if this is an assistant response (has usage)
-            api_info = msg.get('api', {})
-            usage = msg.get('usage', {})
-            
-            if not usage or not api_info:
+            if not isinstance(msg, dict):
                 return None
             
-            # Extract model info
-            provider = api_info.get('provider', 'unknown')
-            model = api_info.get('model', 'unknown')
+            # Check if this is an assistant response (has usage)
+            usage = msg.get('usage', {})
+            if not usage:
+                return None
+            
+            # Extract provider and model - they exist as separate fields
+            provider = msg.get('provider', 'unknown')
+            model = msg.get('model', 'unknown')
+            
+            # Fallback to parsing 'api' field if provider/model not present
+            api_raw = msg.get('api', '')
+            if provider == 'unknown' and isinstance(api_raw, str) and api_raw:
+                if '/' in api_raw:
+                    parts = api_raw.split('/')
+                    provider = parts[0] if len(parts) > 1 else 'unknown'
+                    model = api_raw
+                else:
+                    provider = api_raw.replace('-messages', '').replace('-completions', '')
+                    model = msg.get('model', 'unknown')
             
             # Extract timestamp
             timestamp = data.get('timestamp', datetime.now().isoformat())
