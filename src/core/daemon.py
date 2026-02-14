@@ -15,8 +15,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import threading
 
-# Configure logging
-LOG_DIR = Path.home() / '.tokenguardian' / 'logs'
+# Configure logging - use TG_CONFIG_DIR if set, else default
+import os
+if 'TG_CONFIG_DIR' in os.environ:
+    LOG_DIR = Path(os.environ['TG_CONFIG_DIR']) / 'logs'
+else:
+    LOG_DIR = Path.home() / '.tokenguardian' / 'logs'
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(

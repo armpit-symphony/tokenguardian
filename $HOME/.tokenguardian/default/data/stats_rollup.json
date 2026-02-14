@@ -1,0 +1,14 @@
+{
+  "period_start": "2026-02-13T21:57:22.933945",
+  "period_end": "2026-02-13T21:58:23.039593",
+  "total_queries": 5,
+  "total_tokens": 753070,
+  "total_cost": 10.45525,
+  "total_cost_avoided": 0.0,
+  "cache_hits": 5,
+  "by_model": {
+    "minimax/MiniMax-M2.1": 5
+  },
+  "by_label": {},
+  "by_tier": {}
+}

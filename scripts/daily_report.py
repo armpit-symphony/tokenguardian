@@ -33,7 +33,13 @@ def generate_daily_report(date: str = None, output_dir: str = None):
         date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
     if output_dir is None:
-        output_dir = Path.home() / ".tokenguardian" / "default" / "data"
+        # If TG_CONFIG_DIR is set (isolated instances), write reports under its reports/ dir
+        import os
+        tg_dir = os.environ.get('TG_CONFIG_DIR')
+        if tg_dir:
+            output_dir = Path(tg_dir) / 'reports'
+        else:
+            output_dir = Path.home() / ".tokenguardian" / "default" / "data"
     
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
