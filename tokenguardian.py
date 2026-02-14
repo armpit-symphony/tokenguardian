@@ -359,9 +359,12 @@ def cmd_daemon(args):
     instance = getattr(args, 'instance', 'default')
     poll_interval = getattr(args, 'poll', 30)
     
+    # Use TG_CONFIG_DIR or default to ~/.tokenguardian
+    config_base = Path(get_config_dir())
+    lock_file = config_base / instance / 'run' / 'daemon.lock'
+    
     if args.action == 'start':
         # Check if already running
-        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
         if lock_file.exists():
             try:
                 with open(lock_file, 'r') as f:
@@ -372,9 +375,9 @@ def cmd_daemon(args):
             except (ValueError, ProcessLookupError):
                 lock_file.unlink()
         
-        # Start daemon - pass args correctly
+        # Start daemon - pass config dir via environment
         env = os.environ.copy()
-        env['TG_CONFIG_DIR'] = str(Path.home() / '.tokenguardian' / instance)
+        env['TG_CONFIG_DIR'] = str(config_base)
         
         cmd = [sys.executable, daemon_script, 'start', '--instance', instance, '--poll', str(poll_interval)]
         
@@ -389,14 +392,14 @@ def cmd_daemon(args):
         time.sleep(3)
         
         # Verify
-        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        lock_file = config_base / instance / 'run' / 'daemon.lock'
         if lock_file.exists():
             print("✓ Daemon started successfully")
         else:
             print("✗ Failed to start daemon")
     
     elif args.action == 'stop':
-        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        lock_file = config_base / instance / 'run' / 'daemon.lock'
         if lock_file.exists():
             try:
                 with open(lock_file, 'r') as f:
@@ -412,7 +415,7 @@ def cmd_daemon(args):
             print("Daemon not running")
     
     elif args.action == 'status':
-        lock_file = Path.home() / '.tokenguardian' / instance / 'run' / 'daemon.lock'
+        lock_file = config_base / instance / 'run' / 'daemon.lock'
         if lock_file.exists():
             try:
                 with open(lock_file, 'r') as f:
@@ -421,7 +424,7 @@ def cmd_daemon(args):
                 print(f"Daemon running (instance: {instance}, PID: {pid})")
                 
                 # Load and show stats
-                stats_file = Path.home() / '.tokenguardian' / instance / 'data' / 'stats_rollup.json'
+                stats_file = config_base / instance / 'data' / 'stats_rollup.json'
                 if stats_file.exists():
                     with open(stats_file, 'r') as f:
                         stats = json.load(f)
