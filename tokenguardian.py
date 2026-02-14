@@ -132,6 +132,13 @@ def cmd_status(args):
 
 def cmd_doctor(args):
     """Validate environment and configuration"""
+    
+    # Handle --providers flag for health check
+    if hasattr(args, 'providers') and args.providers:
+        from src.core.health import check_providers
+        check_providers()
+        return
+    
     from src.daemon.daemon import TokenGuardianDaemon, DaemonConfig
     
     config = DaemonConfig(user_config_dir=get_config_dir())
@@ -577,7 +584,9 @@ Examples:
     tail_parser.add_argument('--lines', '-n', type=int, default=20, help='Number of lines')
     
     # doctor
-    subparsers.add_parser('doctor', help='Validate configuration')
+    doctor_parser = subparsers.add_parser('doctor', help='Provider health checks and diagnostics')
+    doctor_parser.add_argument('--providers', action='store_true', help='Check provider health status')
+    doctor_parser.add_argument('--all', action='store_true', help='Run full diagnostics suite')
     
     # classify
     class_parser = subparsers.add_parser('classify', help='Classify a query')
