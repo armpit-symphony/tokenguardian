@@ -1,0 +1,47 @@
+# Token Guardian Billing Profiles
+# Work Order: #TG-BILLING-PROFILES
+# Generated: 2026-02-14
+
+# Billing Modes:
+# - subscription: Monthly flat fee + usage caps (billed_incremental = 0)
+# - payg: True per-token billing (billed = usage.cost.total)
+# - hybrid: Subscription + overage PAYG
+
+providers:
+  # MiniMax coding_plan - subscription mode
+  minimax:
+    billing_mode: subscription
+    plan_name: coding_plan
+    monthly_fee_usd: 20.00
+    billed_incremental_usd_per_token: 0.0
+    payg_equivalent_source: openclaw_usage_cost_fields
+    notes: |
+      MiniMax coding_plan is a subscription bucket.
+      Incremental billed cost is $0.00 per request.
+      PAYG equivalent shows what this usage would cost under per-token rates.
+
+  # OpenAI - PAYG mode
+  openai:
+    billing_mode: payg
+    payg_equivalent_source: openclaw_usage_cost_fields
+    notes: |
+      OpenAI billed cost = OpenClaw usage.cost.total
+
+  # xAI (Grok) - PAYG mode
+  xai:
+    billing_mode: payg
+    payg_equivalent_source: openclaw_usage_cost_fields
+    notes: |
+      xAI billed cost = OpenClaw usage.cost.total
+
+  # Anthropic - PAYG mode
+  anthropic:
+    billing_mode: payg
+    payg_equivalent_source: openclaw_usage_cost_fields
+    notes: |
+      Anthropic billed cost = OpenClaw usage.cost.total
+
+# Cost Source Labels:
+# - subscription_incremental_zero: Billed $0 (subscription)
+# - openclaw_estimate: PAYG equivalent from OpenClaw usage.cost.total
+# - provider_billed: Actual provider invoice (not yet available)
