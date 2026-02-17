@@ -10,10 +10,54 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Dict, List, Optional
+import threading
 
 import yaml
+
+# Import metrics
+from .metrics import (
+    get_metrics, get_content_type,
+    update_daemon_info, update_uptime, update_mode,
+    track_tokens, track_cost, track_request, track_error,
+    daemon_info
+)
+
+
+class MetricsHandler(BaseHTTPRequestHandler):
+    """HTTP handler for /metrics endpoint"""
+    
+    def do_GET(self):
+        if self.path == '/metrics':
+            self.send_response(200)
+            self.send_header('Content-Type', get_content_type())
+            self.end_headers()
+            self.wfile.write(get_metrics())
+        elif self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok'}).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        """Suppress logging for metrics requests"""
+        if args[0].startswith('GET /metrics'):
+            return
+        print("[HTTP] {}".format(format % args))
+
+
+def start_metrics_server(port: int = 9090):
+    """Start Prometheus metrics HTTP server"""
+    server = HTTPServer(('0.0.0.0', port), MetricsHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print("[INFO] Metrics server started on port {}".format(port))
+    return server
 
 
 @dataclass
@@ -25,6 +69,7 @@ class DaemonConfig:
     user_config_dir: str = '~/.tokenguardian'
     interval: int = 30
     shadow_mode: bool = True
+    metrics_port: int = 9090
 
 
 class TokenGuardianDaemon:
@@ -45,6 +90,7 @@ class TokenGuardianDaemon:
         
         # Pipeline will be initialized when starting
         self.pipeline = None
+        self.monitor = None
         self.start_time = None
         
         # Signal handlers
@@ -53,7 +99,7 @@ class TokenGuardianDaemon:
     
     def _handle_shutdown(self, signum, frame):
         """Handle shutdown signals"""
-        print(f"\n[INFO] Received signal {signum}, shutting down...")
+        print("\n[INFO] Received signal {}, shutting down...".format(signum))
         self.running = False
     
     def _load_effective_config(self) -> Dict:
@@ -87,7 +133,7 @@ class TokenGuardianDaemon:
             with open(self.config.pid_file, 'w') as f:
                 f.write(str(self.pid))
         except Exception as e:
-            print(f"[WARN] Could not write PID file: {e}")
+            print("[WARN] Could not write PID file: {}".format(e))
     
     def _cleanup_pid(self):
         """Remove PID file"""
@@ -109,12 +155,20 @@ class TokenGuardianDaemon:
         # Write PID
         self._write_pid()
         
-        print(f"[INFO] Token Guardian Daemon starting (PID: {self.pid})")
-        print(f"[INFO] Config dir: {self.user_config_dir}")
-        print(f"[INFO] Shadow mode: {self.config.shadow_mode}")
-        print(f"[INFO] Interval: {self.config.interval}s")
+        print("[INFO] Token Guardian Daemon starting (PID: {})".format(self.pid))
+        print("[INFO] Config dir: {}".format(self.user_config_dir))
+        print("[INFO] Shadow mode: {}".format(self.config.shadow_mode))
+        print("[INFO] Interval: {}s".format(self.config.interval))
         
-        # Import pipeline here to avoid circular imports
+        # Initialize metrics
+        update_daemon_info(version='1.0.0', mode='shadow' if self.config.shadow_mode else 'live')
+        update_mode('shadow' if self.config.shadow_mode else 'live')
+        
+        # Start metrics server
+        metrics_port = getattr(self.config, 'metrics_port', 9090)
+        self.metrics_server = start_metrics_server(metrics_port)
+        
+        # Import pipeline and monitor
         from ..core.pipeline import create_pipeline
         from ..core.monitor import Monitor
         
@@ -125,7 +179,7 @@ class TokenGuardianDaemon:
             shadow_mode=self.config.shadow_mode
         )
         
-        # Initialize monitor
+        # Initialize monitor with OpenClaw integration
         self.monitor = Monitor(str(self.user_config_dir))
         
         # Main loop
@@ -135,29 +189,88 @@ class TokenGuardianDaemon:
                 cycle += 1
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Log cycle info
-                status = self.pipeline.get_status()
+                # Update uptime metric
+                uptime = (datetime.now() - self.start_time).total_seconds()
+                update_uptime(uptime)
+                
+                # Poll OpenClaw for real token data
+                poll_result = self.monitor.update_from_openclaw()
+                
+                # Get current stats
                 stats = self.monitor.get_stats()
                 
-                print(f"[{timestamp}] CYCLE {cycle} | Decisions: {status['decisions_logged']} | "
-                      f"Tokens: {stats['total_tokens']} | Cost: ${stats['total_cost']:.6f}")
+                # Update metrics from stats
+                by_model = stats.get('by_model', {})
+                for model, token_count in by_model.items():
+                    provider = self._get_provider_for_model(model)
+                    track_tokens(model, provider, token_count)
+                    # Track cost - simplified calculation
+                    cost = self._estimate_cost(model, token_count)
+                    if cost > 0:
+                        track_cost(model, provider, cost)
                 
-                # In a real implementation, this would:
-                # 1. Tail OpenClaw session logs
-                # 2. Process new queries
-                # 3. Dispatch to models
-                # For now, we log status
+                # Build status message
+                new_tokens = poll_result.get('new_tokens', 0)
+                model_str = ", ".join(["{}:{}".format(k, v) for k, v in by_model.items()])
                 
+                if new_tokens > 0:
+                    print("[{}] CYCLE {} | Tokens: {} (+{}) | Cost: ${:.6f} | Models: {}".format(
+                        timestamp, cycle, stats['total_tokens'], new_tokens, 
+                        stats['total_cost'], model_str))
+                else:
+                    print("[{}] CYCLE {} | Tokens: {} | Cost: ${:.6f} | Models: {} (no new)".format(
+                        timestamp, cycle, stats['total_tokens'], stats['total_cost'], model_str))
+                
+                # Wait for next cycle
                 time.sleep(self.config.interval)
                 
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"[ERROR] Cycle failed: {e}")
+                print("[ERROR] Cycle failed: {}".format(e))
+                track_error('daemon', 'internal', type(e).__name__)
                 time.sleep(self.config.interval)
         
         self._cleanup_pid()
-        print(f"[INFO] Daemon stopped. Uptime: {datetime.now() - self.start_time}")
+        print("[INFO] Daemon stopped. Uptime: {}".format(datetime.now() - self.start_time))
+    
+    def _get_provider_for_model(self, model: str) -> str:
+        """Get provider name for a model"""
+        # Try to determine provider from model name
+        model_lower = model.lower()
+        if 'gpt' in model_lower:
+            return 'openai'
+        elif 'claude' in model_lower:
+            return 'anthropic'
+        elif 'gemini' in model_lower:
+            return 'google'
+        elif 'llama' in model_lower or 'mistral' in model_lower:
+            return 'self_hosted'
+        else:
+            return 'unknown'
+    
+    def _estimate_cost(self, model: str, tokens: int) -> float:
+        """Estimate cost for a model (simplified)"""
+        # Very rough cost estimates per 1M tokens
+        cost_per_million = {
+            'gpt-4': 30.0,
+            'gpt-4-turbo': 10.0,
+            'gpt-3.5-turbo': 0.5,
+            'claude-3-opus': 15.0,
+            'claude-3-sonnet': 3.0,
+            'claude-3-haiku': 0.25,
+            'gemini-pro': 0.5,
+        }
+        
+        model_lower = model.lower()
+        rate = 1.0  # Default fallback rate
+        
+        for key, value in cost_per_million.items():
+            if key in model_lower:
+                rate = value
+                break
+        
+        return (tokens / 1_000_000) * rate
     
     def stop(self):
         """Stop the daemon"""
@@ -225,11 +338,11 @@ class TokenGuardianDaemon:
         }
         
         # Check Python version
-        py_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        py_version = "{}.{}".format(sys.version_info.major, sys.version_info.minor)
         results['checks'].append({
             'name': 'python_version',
             'passed': sys.version_info.major >= 3 and sys.version_info.minor >= 8,
-            'message': f"Python {py_version}"
+            'message': "Python {}".format(py_version)
         })
         
         # Check config directory
@@ -237,7 +350,7 @@ class TokenGuardianDaemon:
         results['checks'].append({
             'name': 'config_dir',
             'passed': config_exists,
-            'message': f"Config dir: {self.user_config_dir}"
+            'message': "Config dir: {}".format(self.user_config_dir)
         })
         
         # Check config files
@@ -245,9 +358,9 @@ class TokenGuardianDaemon:
         for cf in config_files:
             exists = (self.user_config_dir / cf).exists() or (self.system_config_dir / cf).exists()
             results['checks'].append({
-                'name': f'config_{cf}',
+                'name': 'config_{}'.format(cf),
                 'passed': exists,
-                'message': f"{cf}: {'found' if exists else 'missing'}"
+                'message': "{}: {}".format(cf, 'found' if exists else 'missing')
             })
             if not exists:
                 results['passed'] = False
@@ -267,7 +380,7 @@ class TokenGuardianDaemon:
             results['checks'].append({
                 'name': 'write_permissions',
                 'passed': False,
-                'message': f'No write access: {e}'
+                'message': 'No write access: {}'.format(e)
             })
         
         # Check log path
@@ -277,20 +390,20 @@ class TokenGuardianDaemon:
                 results['checks'].append({
                     'name': 'log_path',
                     'passed': True,
-                    'message': f'Log path OK: {self.config.log_file}'
+                    'message': 'Log path OK: {}'.format(self.config.log_file)
                 })
             else:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 results['checks'].append({
                     'name': 'log_path',
                     'passed': True,
-                    'message': f'Created log dir: {log_path.parent}'
+                    'message': 'Created log dir: {}'.format(log_path.parent)
                 })
         except Exception as e:
             results['checks'].append({
                 'name': 'log_path',
                 'passed': False,
-                'message': f'Log path error: {e}'
+                'message': 'Log path error: {}'.format(e)
             })
         
         return results
