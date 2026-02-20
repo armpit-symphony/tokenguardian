@@ -1,0 +1,14 @@
+[Unit]
+Description=Token Guardian - Real-time token usage tracking
+After=network.target
+
+[Service]
+Type=simple
+User=sparky
+WorkingDirectory=/home/sparky/.openclaw/workspace/token-guardian
+ExecStart=/usr/bin/python3 /home/sparky/.openclaw/workspace/token-guardian/token-guardian-daemon.py daemon 30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
