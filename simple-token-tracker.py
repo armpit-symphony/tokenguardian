@@ -24,29 +24,31 @@ def save_state(state):
         json.dump(state, f)
 
 def get_active_sessions():
-    """Get active session files"""
     sessions = []
     for f in SESSIONS_DIR.glob("*.jsonl"):
         if ".deleted" not in f.name:
             sessions.append(f)
     return sessions
 
-def count_tokens_in_line(line):
+def extract_data(line):
+    """Extract tokens and model from a single JSON line"""
     try:
         data = json.loads(line)
         if data.get("type") == "message":
             msg = data.get("message", {})
             usage = msg.get("usage", {})
-            return usage.get("totalTokens", 0)
+            tokens = usage.get("totalTokens", 0)
+            model = msg.get("model", msg.get("provider", "unknown"))
+            return tokens, model
     except:
         pass
-    return 0
+    return 0, None
 
 def track():
     state = load_state()
     positions = state.get("positions", {})
     
-    # Initialize positions for new files
+    # Initialize positions
     for f in get_active_sessions():
         if f.name not in positions:
             positions[f.name] = f.stat().st_size
@@ -56,43 +58,57 @@ def track():
     while True:
         try:
             total_new = 0
+            by_model = {}
             
             for session_file in get_active_sessions():
                 name = session_file.name
                 current_size = session_file.stat().st_size
                 last_pos = positions.get(name, current_size)
                 
-                # Only read new bytes
                 if current_size > last_pos:
                     with open(session_file, 'r') as f:
                         f.seek(last_pos)
                         new_content = f.read()
                         new_lines = new_content.strip().split('\n') if new_content.strip() else []
                     
-                    tokens = sum(count_tokens_in_line(line) for line in new_lines)
-                    if tokens > 0:
-                        total_new += tokens
-                        print(f"[{name[:8]}...] +{tokens}")
+                    for line in new_lines:
+                        tokens, model = extract_data(line)
+                        if tokens > 0:
+                            total_new += tokens
+                            if model:
+                                by_model[model] = by_model.get(model, 0) + tokens
                     
                     positions[name] = current_size
             
             save_state({"positions": positions, "started": state.get("started")})
             
             if total_new > 0:
-                stats = {
-                    "last_updated": datetime.now().isoformat(),
-                    "tokens_since_start": total_new,
-                    "daemon_status": "running"
-                }
+                # Load existing stats
+                stats = {"by_model": {}}
+                if STATS_FILE.exists():
+                    with open(STATS_FILE) as f:
+                        stats = json.load(f)
+                
+                # Update by_model
+                existing_by_model = stats.get("by_model", {})
+                for model, tokens in by_model.items():
+                    existing_by_model[model] = existing_by_model.get(model, 0) + tokens
+                
+                stats["by_model"] = existing_by_model
+                stats["tokens_since_start"] = stats.get("tokens_since_start", 0) + total_new
+                stats["last_updated"] = datetime.now().isoformat()
+                stats["daemon_status"] = "running"
+                
                 with open(STATS_FILE, 'w') as f:
                     json.dump(stats, f, indent=2)
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Total new: +{total_new}")
+                
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] +{total_new} tokens | {by_model}")
             
         except Exception as e:
             print(f"Error: {e}")
         
-        time.sleep(3600)  # 1 hour  # 6 hours
+        time.sleep(3600)  # 1 hour
 
 if __name__ == "__main__":
-    print("Token Tracker starting (position-based)...")
+    print("Token Tracker starting (1-hour interval, with model tracking)...")
     track()
