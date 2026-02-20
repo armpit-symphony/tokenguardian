@@ -23,6 +23,17 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
 
+def load_stats():
+    if STATS_FILE.exists():
+        with open(STATS_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_stats(stats):
+    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(STATS_FILE, 'w') as f:
+        json.dump(stats, f, indent=2)
+
 def get_active_sessions():
     sessions = []
     for f in SESSIONS_DIR.glob("*.jsonl"):
@@ -31,7 +42,6 @@ def get_active_sessions():
     return sessions
 
 def extract_data(line):
-    """Extract tokens and model from a single JSON line"""
     try:
         data = json.loads(line)
         if data.get("type") == "message":
@@ -48,7 +58,7 @@ def track():
     state = load_state()
     positions = state.get("positions", {})
     
-    # Initialize positions
+    # Initialize positions for new files only (don't reset existing)
     for f in get_active_sessions():
         if f.name not in positions:
             positions[f.name] = f.stat().st_size
@@ -83,13 +93,9 @@ def track():
             save_state({"positions": positions, "started": state.get("started")})
             
             if total_new > 0:
-                # Load existing stats
-                stats = {"by_model": {}}
-                if STATS_FILE.exists():
-                    with open(STATS_FILE) as f:
-                        stats = json.load(f)
+                # LOAD existing stats (don't overwrite!)
+                stats = load_stats()
                 
-                # Update by_model
                 existing_by_model = stats.get("by_model", {})
                 for model, tokens in by_model.items():
                     existing_by_model[model] = existing_by_model.get(model, 0) + tokens
@@ -99,8 +105,7 @@ def track():
                 stats["last_updated"] = datetime.now().isoformat()
                 stats["daemon_status"] = "running"
                 
-                with open(STATS_FILE, 'w') as f:
-                    json.dump(stats, f, indent=2)
+                save_stats(stats)
                 
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] +{total_new} tokens | {by_model}")
             
