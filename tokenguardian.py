@@ -236,16 +236,25 @@ def cmd_optimize(args):
 
 def cmd_stats(args):
     """Show usage statistics"""
-    from src.core.stats import get_stats
+    from src.core.monitor import get_monitor_stats
     
-    stats = get_stats()
+    stats = get_monitor_stats()
     
     print("\n╔════════════════════════════════════════════════════╗")
     print("║           TOKEN GUARDIAN STATS                   ║")
     print("╚════════════════════════════════════════════════════╝")
     
-    for model, count in stats.get('by_model', {}).items():
-        print(f"  {model}: {count}")
+    total_tokens = stats.get('total_tokens', 0)
+    total_cost = stats.get('estimated_cost', 0)
+    by_model = stats.get('by_model', {})
+    
+    print(f"\n  Total Tokens: {total_tokens:,}")
+    print(f"  Estimated Cost: ${total_cost:.4f}")
+    print()
+    print("  By Model:")
+    for model, count in by_model.items():
+        pct = (count / total_tokens * 100) if total_tokens > 0 else 0
+        print(f"    {model}: {count:,} ({pct:.1f}%)")
 
 
 def cmd_logs(args):

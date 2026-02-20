@@ -1,0 +1,9 @@
+Starting Token Guardian daemon...
+  Config: /home/sparky/.tokenguardian
+  Mode: LIVE
+  Interval: 30s
+[INFO] Token Guardian Daemon starting (PID: 902447)
+[INFO] Config dir: /home/sparky/.tokenguardian
+[INFO] Shadow mode: False
+[INFO] Interval: 30s
+2026-02-15 04:15:16,042 [INFO] Pipeline initialized (shadow=False, threshold=0.8)

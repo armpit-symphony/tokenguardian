@@ -105,6 +105,8 @@ class StatsRollup:
     by_tier: Dict[str, int] = field(default_factory=dict)
     
     def to_dict(self) -> Dict:
+        model_sum = sum(self.by_model.values()) if self.by_model else 0
+        unattributed_gap = self.total_tokens - model_sum
         return {
             'period_start': self.period_start,
             'period_end': self.period_end,
@@ -115,7 +117,9 @@ class StatsRollup:
             'cache_hits': self.cache_hits,
             'by_model': self.by_model,
             'by_label': self.by_label,
-            'by_tier': self.by_tier
+            'by_tier': self.by_tier,
+            'unattributed_gap': unattributed_gap,
+            'attribution_lag_detected': unattributed_gap > 0
         }
 
 

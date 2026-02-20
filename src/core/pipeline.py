@@ -111,6 +111,9 @@ class UnifiedPipeline:
         Returns:
             RoutingDecision with complete routing context
         """
+        import time
+        start_ms = int(time.time() * 1000)
+        
         timestamp = datetime.now().isoformat()
         
         # Step 1: Classify with confidence
@@ -195,6 +198,13 @@ class UnifiedPipeline:
         
         # Log decision
         self.decision_log.append(decision)
+        
+        # REQ_DONE logging for per-request latency tracking
+        end_ms = int(time.time() * 1000)
+        duration_ms = end_ms - start_ms
+        import uuid
+        request_id = uuid.uuid4().hex[:8]
+        logger.info(f"REQ_DONE: ts={timestamp} lane={classification.label} provider={selected_model} duration_ms={duration_ms} request_id={request_id}")
         
         # Log routing decision
         if fallback_triggered:
