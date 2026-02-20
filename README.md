@@ -1,30 +1,52 @@
 # Token Guardian
 
-Unified AI cost optimization and intelligent routing system.
+Unified AI cost optimization, intelligent routing, and token monitoring for OpenClaw-powered systems.
 
 ## Overview
 
 Token Guardian is a single pipeline that:
-- **Classifies** queries with confidence scoring
-- **Routes** requests to optimal models with safety fallbacks
+- **Routes** queries intelligently with the Agent Router
 - **Optimizes** prompts (refinement, caching, compaction)
-- **Monitors** token usage, costs, and efficiency
+- **Monitors** token usage, costs, and efficiency in real-time
 
-## Architecture
+### Key Differentiator: Agent Router Integration
+
+Unlike generic cost trackers, Token Guardian integrates directly with OpenClaw's **Agent Router**:
+- Routes queries based on complexity and confidence scoring
+- Automatic fallback to safe models when confidence is low
+- Unified observability from query → routing → cost tracking
+- OpenClaw-native integration (not a separate dashboard)
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Query     │────►│  Classifier  │────►│   Router     │
-│             │     │ (confidence) │     │ (model sel) │
-└─────────────┘     └──────────────┘     └──────┬───────┘
-                                                │
-                        ┌────────────────────────┘
-                        ▼
-                ┌──────────────┐     ┌──────────────┐
-                │   Optimizer  │────►│   Monitor    │
-                │(refine/cache)│     │(tokens/cost) │
-                └──────────────┘     └──────────────┘
+│   Query     │────►│  Agent Router │────►│   Model      │
+│             │     │(intelligent)  │     │  Selection   │
+└─────────────┘     └──────┬───────┘     └──────┬───────┘
+                            │
+                            ▼
+                    ┌──────────────┐     ┌──────────────┐
+                    │   Monitor    │────►│   Cost      │
+                    │(tokens/cost) │     │  Tracking   │
+                    └──────────────┘     └──────────────┘
 ```
+
+## What Makes Token Guardian Different?
+
+| Feature | Generic Cost Trackers | Token Guardian |
+|---------|---------------------|---------------|
+| OpenClaw Integration | ❌ | ✅ Native |
+| Agent Router | ❌ | ✅ Built-in |
+| Real-time Routing | ❌ | ✅ Per-query |
+| Confidence Fallback | ❌ | ✅ Automatic |
+| Shadow Mode Testing | ⚠️ Partial | ✅ Full pipeline |
+| Cost Attribution | Basic | ✅ Per-agent, per-session |
+
+## Use Cases
+
+- **Cost Control**: Stop runaway API bills with budget alerts
+- **Routing Optimization**: Route simple queries to cheap models, complex to capable ones
+- **Observability**: See exactly what your agents are spending on
+- **Fallback Safety**: Low confidence = automatic safe model selection
 
 ## Quick Start
 
@@ -32,7 +54,7 @@ Token Guardian is a single pipeline that:
 
 ```bash
 # Clone and install
-git clone <repo>
+git clone https://github.com/armpit-symphony/tokenguardian.git
 cd tokenguardian
 ./install.sh
 
@@ -46,13 +68,13 @@ tokenguardian doctor
 # Daemon management
 tokenguardian start [--live]       # Start daemon (default: shadow mode)
 tokenguardian stop                 # Stop daemon
-tokenguardian status               # Show status, PID, decisions
-tokenguardian restart [--live]     # Restart daemon
+tokenguardian status              # Show status, PID, decisions
+tokenguardian restart [--live]    # Restart daemon
 
 # Testing
 tokenguardian dry-run [--query "..."]  # Test routing without executing
-tokenguardian classify [--query "..."]  # Classify a query
-tokenguardian optimize [--query "..."]  # Optimize a prompt
+tokenguardian classify [--query "..."] # Classify a query
+tokenguardian optimize [--query "..."] # Optimize a prompt
 
 # Monitoring
 tokenguardian stats                # Show usage statistics
@@ -61,6 +83,28 @@ tokenguardian logs [--tail 20]     # Show daemon logs
 # Maintenance
 tokenguardian doctor               # Validate configuration
 tokenguardian install              # Install CLI
+```
+
+## Architecture
+
+```
+/tokenguardian/
+  tokenguardian.py      # CLI entry point
+  install.sh           # Installation script
+  README.md            # This file
+  config/
+    guardian.yaml       # Optimization config
+    models.yaml         # Model definitions & costs
+    routing.yaml        # Routing rules
+  src/
+    core/
+      classifier.py     # Query classification
+      optimizer.py       # Prompt optimization
+      monitor.py        # Token monitoring
+      pipeline.py       # Unified pipeline
+      router.py         # Agent Router integration
+    daemon/
+      daemon.py         # Supervisor daemon
 ```
 
 ## Configuration
@@ -72,112 +116,109 @@ tokenguardian install              # Install CLI
 
 User config overrides system config.
 
-### Config Files
+### `models.yaml`
 
-#### `guardian.yaml`
-Core optimization settings:
-- Refinement (fluff word removal)
-- Caching (TTL, directory)
-- Compaction (batching)
-- Audit settings
+```yaml
+models:
+  MiniMax-M2.1:
+    provider: minimax
+    cost:
+      input: 15.00  # per 1M tokens
+      output: 60.00
+    tier: budget
+  
+  grok-4:
+    provider: xai
+    cost:
+      input: 0.20
+      output: 0.50
+    tier: premium
 
-#### `models.yaml`
-Model definitions and costs:
-- Model capabilities
-- Cost per 1M tokens
-- Fallback chain
+  gpt-5-mini:
+    provider: openai
+    cost:
+      input: 0.15
+      output: 0.60
+    tier: fallback
+```
 
-#### `routing.yaml`
-Routing rules:
-- Classification → model mappings
-- Keywords per classification
-- Confidence threshold (default: 0.80)
-- Safe fallback model
+### `routing.yaml`
+
+```yaml
+routing:
+  default_fallback: openai/gpt-5-mini
+  confidence_threshold: 0.80
+  
+routes:
+  - classification: coding
+    preferred: minimax/MiniMax-M2.1
+    fallback: openai/gpt-5-mini
+  
+  - classification: reasoning
+    preferred: xai/grok-4
+    fallback: openai/gpt-5-mini
+```
+
+## OpenClaw Integration
+
+Token Guardian is designed for OpenClaw deployments:
+
+```python
+# In your OpenClaw agent
+from tokenguardian import AgentRouter
+
+router = AgentRouter()
+
+# Automatic routing based on query type
+result = router.route(query, user_tier="premium")
+# Returns: {model, confidence, fallback_triggered}
+```
+
+### Supported Providers
+
+- **MiniMax M2.1** - Budget primary
+- **xAI Grok-4** - Premium reasoning
+- **OpenAI GPT-5** - Safe fallback
+- **Anthropic Claude** - Coming soon
+
+## Monitoring & Stats
+
+```
+$ tokenguardian stats
+
+╔════════════════════════════════════════════╗
+║           TOKEN GUARDIAN STATS           ║
+╚════════════════════════════════════════════╝
+
+  Total Tokens: 122,080,018
+  Estimated Cost: $1,945.72
+
+  By Model:
+    minimax/MiniMax-M2.1: 121,558,544 (99.1%)
+    openai/gpt-5-mini: 1,156,514 (0.9%)
+    xai/grok-4: 40,374 (0.03%)
+```
 
 ## Safety Features
 
 ### Confidence-Based Fallback
 
-If classification confidence < 0.80 (configurable), the system routes to the safe fallback model instead of the preferred model.
+If classification confidence < 0.80, the system routes to the safe fallback model:
 
 ```
-Query: "General question about AI"
+Query: "What is 2+2?"
   Classification: general
   Confidence: 0.10  ← Below threshold!
-  ⚠ FALLBACK: Routes to openai/gpt-5-mini instead of preferred minimax/MiniMax-M2.1
+  ⚠ FALLBACK: Routes to gpt-5-mini instead of MiniMax-M2.1
 ```
 
-### Safe Fallback Model
+### Shadow Mode
 
-Default: `openai/gpt-5-mini` - a mid-tier model that handles most queries reliably.
-
-## Modes
-
-### Shadow Mode (Default)
-
-- Classifies and routes queries
-- Logs all decisions
-- **Does NOT modify actual behavior**
-- Safe for testing and validation
-
-### Live Mode
-
-- Executes routing decisions
-- Applies optimizations
-- Modifies actual AI traffic
-
-## Monitoring
-
-### Stats
-
-```
-tokenguardian stats
-```
-
-Shows:
-- Total tokens processed
-- Total cost (USD)
-- Cache hit rate
-- Tokens by model
-- Actions breakdown
-
-### Audit Log
-
-Located at `~/.tokenguardian/audit/YYYY-MM-DD.jsonl`
-
-Each entry includes:
-- Timestamp
-- Classification + confidence
-- Model selected
-- Fallback trigger
-- Token diff
-- Cost estimate
-
-## Architecture
-
-```
-/tokenguardian/
-  tokenguardian.py      # CLI entry point
-  install.sh           # Installation script
-  README.md            # This file
-  config/
-    guardian.yaml       # Optimization config
-    models.yaml         # Model definitions
-    routing.yaml        # Routing rules
-  src/
-    core/
-      classifier.py     # Query classification
-      optimizer.py       # Prompt optimization
-      monitor.py        # Token monitoring
-      pipeline.py       # Unified pipeline
-    daemon/
-      daemon.py         # Supervisor daemon
-```
-
-## Requirements
-
-- Python 3.8+
-- PyYAML (optional, for config files)
+Test routing without modifying actual behavior:
+- Classifies queries
+- Logs routing decisions
+- Shows what _would_ have happened
+- Safe for production validation
 
 ## License
 
