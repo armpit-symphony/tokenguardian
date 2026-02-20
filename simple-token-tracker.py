@@ -91,7 +91,7 @@ def track():
         except Exception as e:
             print(f"Error: {e}")
         
-        time.sleep(30)
+        time.sleep(3600)  # 1 hour  # 6 hours
 
 if __name__ == "__main__":
     print("Token Tracker starting (position-based)...")
