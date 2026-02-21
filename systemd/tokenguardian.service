@@ -1,26 +1,19 @@
 [Unit]
-Description=Token Guardian Daemon - AI Cost Optimization & Routing
-Documentation=https://github.com/sparkpitlabs/token-guardian
+Description=Token Guardian Daemon (LIVE)
 After=network.target
 
 [Service]
 Type=simple
-User=sparky
-Environment=TG_CONFIG_DIR=%h/.tokenguardian
-ExecStart=/usr/bin/python3 /home/sparky/.openclaw/workspace/tokenguardian/src/core/daemon.py start --instance default --poll 30
-Restart=always
-RestartSec=10
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=tokenguardian
-
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=%h/.tokenguardian
+User=tokenguardian
+Group=tokenguardian
+WorkingDirectory=/opt/tokenguardian
+ExecStart=/opt/tokenguardian/venv/bin/python /opt/tokenguardian/tokenguardian.py start --live
+ExecStop=/opt/tokenguardian/venv/bin/python /opt/tokenguardian/tokenguardian.py stop
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target

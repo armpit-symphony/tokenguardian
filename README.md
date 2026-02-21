@@ -223,3 +223,76 @@ Test routing without modifying actual behavior:
 ## License
 
 MIT
+
+---
+
+## Production Setup (Recommended: systemd daemon only)
+
+This runs Token Guardian LIVE and survives reboots without running burn-in driver.
+
+### Quick Start
+
+```bash
+cd /home/sparky/.openclaw/workspace/tokenguardian
+source venv/bin/activate
+python3 tokenguardian.py doctor
+```
+
+### Create service user
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin tokenguardian
+```
+
+### Install app
+
+```bash
+sudo mkdir -p /opt/tokenguardian
+sudo chown -R tokenguardian:tokenguardian /opt/tokenguardian
+# Copy repo contents into /opt/tokenguardian
+```
+
+### Setup venv
+
+```bash
+cd /opt/tokenguardian
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Install systemd service
+
+```bash
+sudo cp systemd/tokenguardian.service /etc/systemd/system/tokenguardian.service
+sudo systemctl daemon-reload
+sudo systemctl enable tokenguardian
+sudo systemctl start tokenguardian
+```
+
+### Check status/logs
+
+```bash
+sudo systemctl status tokenguardian --no-pager
+sudo journalctl -u tokenguardian -n 200 --no-pager
+```
+
+---
+
+## Disable Burn-in Driver (Keep daemon running)
+
+Burn-in driver is a test harness and can latch into `DRIVER_HALTED`. For production, disable it:
+
+```bash
+bash scripts/disable_burnin_driver.sh
+```
+
+Then run the daemon normally:
+
+```bash
+cd /home/sparky/.openclaw/workspace/tokenguardian
+source venv/bin/activate
+python3 tokenguardian.py start --live
+```
+
+See BURNIN_DRIVER.md and TROUBLESHOOTING.md for details.
