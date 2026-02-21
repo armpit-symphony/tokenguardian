@@ -1,28 +1,19 @@
 [Unit]
-Description=Token Guardian Resilient Supervisor
+Description=Token Guardian Production Service
 After=network.target
 
 [Service]
 Type=simple
-User=sparky
-WorkingDirectory=/home/sparky/.openclaw/workspace/tokenguardian
-ExecStart=/usr/bin/python3 /home/sparky/.openclaw/workspace/tokenguardian/tg_supervisor.py --daemon /home/sparky/.openclaw/workspace/tokenguardian/tokenguardian.py --restart-delay 5
-Restart=no
+User=tokenguardian
+Group=tokenguardian
+WorkingDirectory=/opt/tokenguardian
+ExecStart=/opt/tokenguardian/venv/bin/python /opt/tokenguardian/tokenguardian.py start --live
+ExecStop=/opt/tokenguardian/venv/bin/python /opt/tokenguardian/tokenguardian.py stop
+Restart=on-failure
 RestartSec=5
-
-# Logging
-StandardOutput=append:/home/sparky/.tokenguardian-burnin48/supervisor/supervisor.log
-StandardError=append:/home/sparky/.tokenguardian-burnin48/supervisor/supervisor.err
-
-# Environment
 Environment=PYTHONUNBUFFERED=1
-Environment=TG_CONFIG_DIR=/home/sparky/.tokenguardian
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target
